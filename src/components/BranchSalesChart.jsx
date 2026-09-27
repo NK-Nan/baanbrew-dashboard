@@ -2,6 +2,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   ResponsiveContainer,
   Tooltip,
@@ -24,13 +25,18 @@ function ChartTooltip({ active, payload }) {
 
 // ข้อมูลที่รับเข้ามาเรียงจากมากไปน้อยแล้ว (จาก salesByBranch)
 // ใช้แท่งแนวนอน เพื่อให้ชื่อสาขาภาษาไทยยาว ๆ อ่านได้ครบ
-export default function BranchSalesChart({ data }) {
+export default function BranchSalesChart({ data, selected = 'all' }) {
   const isMobile = useIsMobile()
   const height = Math.max(200, data.length * (isMobile ? 40 : 48))
 
   return (
     <section className="rounded-xl border border-line bg-panel p-4 sm:p-5 lg:p-6">
       <h2 className="font-semibold">ยอดขายแยกสาขา</h2>
+      {selected !== 'all' && (
+        <p className="mt-1 text-xs text-muted sm:text-sm">
+          แสดงทุกสาขาในช่วงวันที่เดียวกันเพื่อเปรียบเทียบ เน้นสาขาที่เลือก
+        </p>
+      )}
       <div className="mt-4" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
@@ -56,6 +62,13 @@ export default function BranchSalesChart({ data }) {
             />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--color-paper)' }} />
             <Bar dataKey="sales" fill="var(--color-leaf)" radius={[0, 4, 4, 0]} barSize={isMobile ? 20 : 24}>
+              {data.map((d) => (
+                <Cell
+                  key={d.branch}
+                  fill={d.branch === selected ? 'var(--color-cherry)' : 'var(--color-leaf)'}
+                  fillOpacity={selected === 'all' || d.branch === selected ? 1 : 0.35}
+                />
+              ))}
               <LabelList
                 dataKey="sales"
                 position="right"
