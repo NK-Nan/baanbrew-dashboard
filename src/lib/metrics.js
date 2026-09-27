@@ -76,7 +76,8 @@ function nextDate(dateKey) {
 
 // ยอดขายรายวัน: รวมยอดตามวันที่ เรียงจากเก่าไปใหม่
 // และเติมวันที่ไม่มียอดขายเป็น 0 เพื่อให้เส้นกราฟไม่ข้ามวัน
-export function dailySales(rows) {
+// start/end (ไม่บังคับ) ขยายช่วงให้ครอบคลุมวันที่ตัวกรองเลือก แม้วันนั้นจะไม่มียอดขาย
+export function dailySales(rows, { start = '', end = '' } = {}) {
   const byDate = new Map()
   for (const r of rows) {
     byDate.set(r.date, (byDate.get(r.date) ?? 0) + r.sales)
@@ -84,9 +85,10 @@ export function dailySales(rows) {
   if (byDate.size === 0) return []
 
   const dates = [...byDate.keys()].sort()
-  const last = dates[dates.length - 1]
+  const first = start && start < dates[0] ? start : dates[0]
+  const last = end && end > dates[dates.length - 1] ? end : dates[dates.length - 1]
   const result = []
-  for (let d = dates[0]; d <= last; d = nextDate(d)) {
+  for (let d = first; d <= last; d = nextDate(d)) {
     result.push({ date: d, sales: byDate.get(d) ?? 0 })
   }
   return result
@@ -118,22 +120,61 @@ export function salesByBranch(rows) {
     .sort((a, b) => b.sales - a.sales)
 }
 
-// รวมทุกค่าที่ Dashboard ต้องใช้ไว้ในที่เดียว
-export function buildDashboard(rawRows) {
-  const rows = prepareRows(rawRows)
-  const daily = addMovingAverage(dailySales(rows), 7)
+/* ---------- ตัวกรอง ---------- */
+
+// รายชื่อสาขาที่มีในข้อมูล เรียงตามตัวอักษรไทย ใช้เป็นตัวเลือกใน dropdown
+export function getBranchOptions(rows) {
+  return [...new Set(rows.map((r) => r.branch))].sort((a, b) => a.localeCompare(b, 'th'))
+}
+
+// วันแรกและวันสุดท้ายของข้อมูล ใช้เป็นค่าเริ่มต้นและขอบเขตของช่องวันที่
+export function getDateBounds(rows) {
+  if (rows.length === 0) return null
+  let min = rows[0].date
+  let max = rows[0].date
+  for (const r of rows) {
+    if (r.date < min) min = r.date
+    if (r.date > max) max = r.date
+  }
+  return { min, max }
+}
+
+// กรองแถวตามสาขาและช่วงวันที่ (รวมวันต้นและวันท้าย)
+// branch = 'all' หรือค่าว่าง คือทุกสาขา; from/to ว่าง คือไม่จำกัดด้านนั้น
+// วันที่เป็น string 'YYYY-MM-DD' จึงเทียบด้วย <, > ได้ตรง ๆ
+export function filterRows(rows, { branch = 'all', from = '', to = '' } = {}) {
+  return rows.filter(
+    (r) =>
+      (branch === 'all' || !branch || r.branch === branch) &&
+      (!from || r.date >= from) &&
+      (!to || r.date <= to),
+  )
+}
+
+// รวมทุกค่าที่ Dashboard ต้องใช้ ตามตัวกรองที่เลือก
+// - KPI: จากแถวที่ผ่านทั้งตัวกรองสาขาและวันที่
+// - ยอดรายวัน: คำนวณค่าเฉลี่ย 7 วันจากข้อมูลทั้งหมดของสาขานั้นก่อน แล้วค่อยตัดช่วงวันที่
+//   เพื่อให้วันแรกของช่วงที่เลือกมีค่าเฉลี่ยทันที (ใช้ข้อมูล 6 วันก่อนหน้าช่วงได้)
+// - ยอดแยกสาขา: กรองเฉพาะวันที่ เพื่อให้ยังเห็นทุกสาขาเทียบกัน (สาขาที่เลือกจะถูกเน้นสี)
+export function buildDashboard(rows, filters = {}) {
+  const { branch = 'all', from = '', to = '' } = filters
+  const filtered = filterRows(rows, { branch, from, to })
+  const branchRows = filterRows(rows, { branch })
+  const dateRows = filterRows(rows, { from, to })
+
+  const daily = addMovingAverage(dailySales(branchRows, { start: from, end: to }), 7).filter(
+    (d) => (!from || d.date >= from) && (!to || d.date <= to),
+  )
+
   return {
-    rowCount: rows.length,
-    skippedRows: rawRows.length - rows.length,
-    totalSales: totalSales(rows),
-    billCount: billCount(rows),
-    averagePerBill: averagePerBill(rows),
-    uniqueMembers: uniqueMembers(rows),
+    rowCount: filtered.length,
+    totalSales: totalSales(filtered),
+    billCount: billCount(filtered),
+    averagePerBill: averagePerBill(filtered),
+    uniqueMembers: uniqueMembers(filtered),
     daily,
-    byBranch: salesByBranch(rows),
-    dateRange: daily.length
-      ? { from: daily[0].date, to: daily[daily.length - 1].date }
-      : null,
+    byBranch: salesByBranch(dateRows),
+    selectedBranch: branch,
   }
 }
 
