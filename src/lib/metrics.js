@@ -29,9 +29,14 @@ export function prepareRows(rawRows) {
         date: datetime.slice(0, 10),
         branch: String(r.branch ?? '').trim() || 'ไม่ระบุสาขา',
         customerId: String(r.customer_id ?? '').trim(),
+        productId: String(r.product_id ?? '').trim(),
         qty,
         unitPrice,
         sales: qty * unitPrice,
+        // ชื่อฟิลด์ที่ Lab 2.2 (src/lab2/) ใช้ ให้ค่าเดียวกับด้านบน
+        product_id: String(r.product_id ?? '').trim(),
+        revenue: qty * unitPrice,
+        hour: Number(datetime.slice(11, 13)),
       }
     })
     .filter(
@@ -92,6 +97,11 @@ export function dailySales(rows, { start = '', end = '' } = {}) {
     result.push({ date: d, sales: byDate.get(d) ?? 0 })
   }
   return result
+}
+
+// ยอดขายรายวันในรูปแบบที่ Lab 2.2 (BadChart3) ใช้: [{ date, revenue }]
+export function dailyRevenue(rows) {
+  return dailySales(rows).map(({ date, sales }) => ({ date, revenue: sales }))
 }
 
 // ค่าเฉลี่ยเคลื่อนที่ย้อนหลัง N วัน (ค่าเริ่มต้น 7 วัน)
@@ -216,3 +226,11 @@ export function formatThaiDate(dateKey, { year = 'none', withYear = false } = {}
   if (mode === 'short') return `${base} ${String(be).slice(-2)}`
   return base
 }
+
+/* ---------- ชื่อเรียกที่ไฟล์ของ Lab 2.2 ใช้ (src/lab2/FixedCharts.jsx) ---------- */
+
+// ฿1,234,567
+export const fmtBaht = (value) => formatBaht(value)
+
+// ฿850K, ฿1.2M สำหรับแกนและป้ายบนกราฟ
+export const fmtShortBaht = (value) => formatBahtCompact(value)
