@@ -1,0 +1,142 @@
+rules_version = '2';
+
+// Lab 3.3 · Security Rules ของบ้านบรู
+// หลักการ: ปิดทุกอย่างเป็นค่าเริ่มต้น แล้วเปิดเฉพาะที่จำเป็น
+//   - ต้องล็อกอินก่อนจึงอ่านข้อมูลได้
+//   - products / branches อ่านอย่างเดียว (แก้จาก Firebase console หรือสคริปต์ seed ที่ใช้ Admin SDK)
+//   - sales สร้างได้อย่างเดียว ห้ามแก้ ห้ามลบ (ยอดขายที่บันทึกแล้วต้องตรวจสอบย้อนหลังได้)
+//   - เอกสาร sales ใหม่ต้องมีโครงสร้างตรงกับที่ buildSale() ใน src/lab3/saleModel.js สร้าง
+// หมายเหตุ: สคริปต์ seed (firebase-admin) ไม่ผ่าน Rules จึงยังนำเข้าข้อมูลได้ตามปกติ
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ───────── ฟังก์ชันช่วย ─────────
+
+    // ล็อกอินแล้ว (มี request.auth) ไม่ว่าด้วยบัญชีไหน
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ค่าที่ยอมรับ ต้องตรงกับ BRANCHES และ PAYMENTS ใน saleModel.js ทุกตัวอักษร
+    function branches() {
+      return ["สยาม", "สีลม", "อารีย์", "บางนา", "มหาวิทยาลัย"];
+    }
+    function payments() {
+      return ["QR พร้อมเพย์", "บัตรเครดิต", "เงินสด", "LINE MAN", "Grab"];
+    }
+    function deliveryPayments() {
+      return ["LINE MAN", "Grab"];
+    }
+
+    // ฟิลด์ทั้งหมดที่เอกสาร sales จากเว็บต้องมี = ที่ buildSale() สร้าง 14 ฟิลด์ + created_at
+    function saleFields() {
+      return [
+        "order_id", "datetime", "date", "hour", "branch", "product_id",
+        "qty", "unit_price", "revenue", "customer_id", "payment_method",
+        "channel", "source", "created_by", "created_at"
+      ];
+    }
+
+    // ตรวจเอกสารยอดขายใหม่ทั้งหมด · d = ข้อมูลที่กำลังจะเขียน, saleId = document id
+    function isValidNewSale(d, saleId) {
+      return
+        // 1) ฟิลด์ครบทุกตัว (hasAll) และไม่มีฟิลด์แปลกปลอม (hasOnly)
+        //    กันการแอบเพิ่มฟิลด์ เช่น discount หรือ approved ที่โค้ดเราไม่รู้จัก
+        d.keys().hasAll(saleFields())
+        && d.keys().hasOnly(saleFields())
+
+        // 2) ที่มาและผู้บันทึก: ต้องเป็นข้อมูลจากเว็บ และ created_by ต้องเป็นตัวผู้ใช้เอง
+        //    กันการบันทึกยอดขายในนามคนอื่น และกันการปลอมเป็นข้อมูล import
+        && d.source == "web"
+        && d.created_by == request.auth.uid
+
+        // 3) เวลาที่บันทึกต้องเป็นเวลาของเซิร์ฟเวอร์ (serverTimestamp()) เท่านั้น
+        //    request.time คือเวลาที่ Firestore รับคำขอ ผู้ใช้ปลอมไม่ได้
+        && d.created_at == request.time
+
+        // 4) สาขาและวิธีชำระเงินต้องอยู่ในรายการที่กำหนด
+        && d.branch in branches()
+        && d.payment_method in payments()
+
+        // 5) ช่องทางต้องสอดคล้องกับวิธีชำระเงิน (กติกาเดียวกับ buildSale)
+        //    LINE MAN / Grab = "เดลิเวอรี" · อย่างอื่น = "หน้าร้าน"
+        && ((d.payment_method in deliveryPayments() && d.channel == "เดลิเวอรี")
+            || (!(d.payment_method in deliveryPayments()) && d.channel == "หน้าร้าน"))
+
+        // 6) จำนวนเป็นจำนวนเต็ม 1–20 (ตรงกับ MAX_QTY) · ทศนิยมหรือข้อความไม่ผ่าน
+        && d.qty is int
+        && d.qty >= 1 && d.qty <= 20
+
+        // 7) ชั่วโมงเป็นจำนวนเต็ม 0–23
+        && d.hour is int
+        && d.hour >= 0 && d.hour <= 23
+
+        // 8) เมนูต้องมีอยู่จริง และราคาต้องตรงกับราคาใน products/{product_id}
+        //    กันการแก้ราคาจากฝั่งเบราว์เซอร์ (เช่น เปลี่ยนลาเต้ ฿75 เป็น ฿1)
+        //    get() นับเป็นการอ่าน 1 ครั้งต่อการบันทึก 1 รายการ
+        && d.product_id is string
+        && exists(/databases/$(database)/documents/products/$(d.product_id))
+        && d.unit_price is number
+        && d.unit_price == get(/databases/$(database)/documents/products/$(d.product_id)).data.price
+
+        // 9) ยอดขายต้องเท่ากับ จำนวน × ราคา พอดี กันการใส่ยอดเกินหรือต่ำกว่าจริง
+        && d.revenue is number
+        && d.revenue == d.qty * d.unit_price
+
+        // 10) รูปแบบวันที่และเวลาไทย
+        //     date = YYYY-MM-DD · datetime = YYYY-MM-DDTHH:MM:SS+07:00
+        //     และ datetime ต้องขึ้นต้นด้วย date เดียวกัน (กันวันที่สองฟิลด์ไม่ตรงกัน)
+        && d.date is string
+        && d.date.matches("20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])")
+        && d.datetime is string
+        && d.datetime.matches(d.date + "T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][+]07:00")
+
+        // 11) hour ต้องตรงกับชั่วโมงใน datetime (เช่น "…T03:30:05+07:00" → hour = 3)
+        //     ชั่วโมง 0–9 ใน datetime มีเลข 0 นำหน้า จึงแยกตรวจสองกรณี
+        && ((d.hour < 10 && d.datetime.matches(".*T0" + string(d.hour) + ":.*"))
+            || (d.hour >= 10 && d.datetime.matches(".*T" + string(d.hour) + ":.*")))
+
+        // 12) รหัสสมาชิก: null (ลูกค้าทั่วไป) หรือ C ตามด้วยเลข 5 หลัก ตัวพิมพ์ใหญ่
+        //     buildSale แปลงเป็นตัวพิมพ์ใหญ่แล้ว จึงไม่รับ c01234 หรือสตริงว่าง ""
+        && (d.customer_id == null
+            || (d.customer_id is string && d.customer_id.matches("C[0-9]{5}")))
+
+        // 13) เลขบิลรูปแบบ WEB-YYYYMMDD-HHMMSS-XXXX (makeOrderId) และ document id
+        //     ต้องเป็น order_id-product_id เหมือนข้อมูล import · กันการตั้ง id ทับรูปแบบเลขบิล ORD…
+        && d.order_id is string
+        && d.order_id.matches("WEB-[0-9]{8}-[0-9]{6}-[0-9A-Z]{4}")
+        && saleId == d.order_id + "-" + d.product_id;
+    }
+
+    // ───────── collections ─────────
+
+    // เมนู: ล็อกอินแล้วอ่านได้ · เขียนไม่ได้ (create / update / delete ถูกปฏิเสธทั้งหมด)
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // สาขา: เหมือน products
+    match /branches/{branchId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ยอดขาย
+    match /sales/{saleId} {
+      // อ่าน (get / list / onSnapshot) ได้เมื่อล็อกอิน
+      allow read: if isSignedIn();
+
+      // สร้างได้เมื่อล็อกอิน และข้อมูลผ่านการตรวจทุกข้อด้านบน
+      // หมายเหตุ: setDoc ไปที่ id ที่มีอยู่แล้วนับเป็น update ไม่ใช่ create จึงถูกปฏิเสธ
+      // (ทับยอดขายเดิมไม่ได้)
+      allow create: if isSignedIn() && isValidNewSale(request.resource.data, saleId);
+
+      // แก้ไขและลบไม่ได้ ถ้าบันทึกผิดให้บันทึกรายการปรับยอดแทน (ทำใน Lab ถัดไป)
+      allow update, delete: if false;
+    }
+
+    // collection อื่นทั้งหมดที่ไม่ได้ระบุไว้ ถูกปฏิเสธโดยอัตโนมัติ (ค่าเริ่มต้นของ Firestore)
+  }
+}
