@@ -5,6 +5,7 @@ rules_version = '2';
 //   - ต้องล็อกอินก่อนจึงอ่านข้อมูลได้
 //   - products / branches อ่านอย่างเดียว (แก้จาก Firebase console หรือสคริปต์ seed ที่ใช้ Admin SDK)
 //   - sales สร้างได้อย่างเดียว ห้ามแก้ ห้ามลบ (ยอดขายที่บันทึกแล้วต้องตรวจสอบย้อนหลังได้)
+//   - analytics (Lab 4.2) อ่านอย่างเดียว เขียนได้เฉพาะ scripts/build-analytics.mjs ที่ใช้ Admin SDK
 //   - เอกสาร sales ใหม่ต้องมีโครงสร้างตรงกับที่ buildSale() ใน src/lab3/saleModel.js สร้าง
 // หมายเหตุ: สคริปต์ seed (firebase-admin) ไม่ผ่าน Rules จึงยังนำเข้าข้อมูลได้ตามปกติ
 
@@ -135,6 +136,13 @@ service cloud.firestore {
 
       // แก้ไขและลบไม่ได้ ถ้าบันทึกผิดให้บันทึกรายการปรับยอดแทน (ทำใน Lab ถัดไป)
       allow update, delete: if false;
+    }
+
+    // ผลวิเคราะห์ (Lab 4.2): ล็อกอินแล้วอ่านได้ · เขียนจากเว็บไม่ได้
+    // pipeline ใช้ firebase-admin ซึ่งไม่ผ่าน Rules จึงยังเขียน 5 เอกสารได้ตามปกติ
+    match /analytics/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
 
     // collection อื่นทั้งหมดที่ไม่ได้ระบุไว้ ถูกปฏิเสธโดยอัตโนมัติ (ค่าเริ่มต้นของ Firestore)
