@@ -137,6 +137,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ผลวิเคราะห์ (RFM, Cohort, ABC): ล็อกอินแล้วอ่านได้ · เขียนจากหน้าเว็บไม่ได้
+    // pipeline เขียนด้วย firebase-admin ซึ่งไม่ผ่าน Rules จึงยังอัปเดตได้ตามปกติ
+    // {path=**} ครอบทั้งเอกสารใน analytics และ subcollection ใต้เอกสารเหล่านั้น
+    match /analytics/{path=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // collection อื่นทั้งหมดที่ไม่ได้ระบุไว้ ถูกปฏิเสธโดยอัตโนมัติ (ค่าเริ่มต้นของ Firestore)
   }
 }
