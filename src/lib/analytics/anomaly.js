@@ -19,7 +19,44 @@ export const median = (xs) => {
  *   { date, branch, actual, expected, change (สัดส่วน เช่น -0.9 = ต่ำกว่าปกติ 90%), score, holiday }
  */
 export function scoreAnomalies(daily, holidays = {}, { weeks = 8, minWeeks = 4, smooth = 1000 } = {}) {
-  throw new Error("ยังไม่ได้ทำ: scoreAnomalies");
+  // 1) ยอดรายวันแยกตามสาขา: branch -> Map(date -> revenue) · ถ้ามีหลายแถววันเดียวกันให้รวมกัน
+  const byBranch = new Map();
+  for (const r of daily) {
+    if (!byBranch.has(r.branch)) byBranch.set(r.branch, new Map());
+    const m = byBranch.get(r.branch);
+    m.set(r.date, (m.get(r.date) ?? 0) + (Number(r.revenue) || 0));
+  }
+
+  const out = [];
+  for (const [branch, m] of byBranch) {
+    for (const [date, actual] of m) {
+      // 2) ยอดของวันเดียวกันของสัปดาห์ ย้อนหลัง 1..weeks สัปดาห์ (ย้อนทีละ 7 วันจึงได้วันในสัปดาห์เดียวกันเสมอ)
+      //    วันที่ไม่มีข้อมูล (ยังไม่เปิดสาขา/ไม่มีในชุดข้อมูล) ไม่นับ ไม่ถือว่าเป็น 0
+      const past = [];
+      for (let k = 1; k <= weeks; k++) {
+        const v = m.get(addDays(date, -7 * k));
+        if (v !== undefined) past.push(v);
+      }
+      if (past.length < minWeeks) continue; // ประวัติไม่พอ ยังให้คะแนนไม่ได้
+
+      // 3) ค่าคาดหวัง = median ไม่ใช่ค่าเฉลี่ย เพื่อให้วันผิดปกติในอดีต (เช่นไฟดับ) ไม่ดึงค่าคาดหวังเพี้ยน
+      const expected = median(past);
+      out.push({
+        date,
+        branch,
+        actual,
+        expected,
+        change: expected ? actual / expected - 1 : null, // คาดหวัง 0 → คิดเป็นสัดส่วนไม่ได้
+        score: Math.log((actual + smooth) / (expected + smooth)),
+        holiday: holidays[date] ?? null,
+      });
+    }
+  }
+
+  // 4) เรียงจากผิดปกติมากไปน้อย (ทั้งสูงและต่ำกว่าปกติ) · เท่ากันให้วันใหม่กว่ามาก่อน
+  return out.sort(
+    (a, b) => Math.abs(b.score) - Math.abs(a.score) || b.date.localeCompare(a.date) || String(a.branch).localeCompare(String(b.branch))
+  );
 }
 
 /** อันดับวันผิดปกติที่ควรตรวจสอบ (ไม่รวมวันหยุด) */

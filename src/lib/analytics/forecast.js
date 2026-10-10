@@ -61,11 +61,12 @@ export function backtest(series, horizon = 28, K = 8) {
     flat: flat[i].forecast,
   }));
 
-  // % ความคลาดเคลื่อนของ seasonal รายวัน (มีเครื่องหมาย) · ข้ามวันที่ยอดจริงเป็น 0
-  const errs = test.filter((t) => t.actual).map((t) => ((t.actual - t.seasonal) / t.actual) * 100);
+  // ความคลาดเคลื่อนของ seasonal รายวันเป็นสัดส่วน (มีเครื่องหมาย) · ข้ามวันที่ยอดจริงเป็น 0
+  const errs = test.filter((t) => t.actual).map((t) => (t.actual - t.seasonal) / t.actual);
   const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
   const sd = errs.length ? Math.sqrt(errs.reduce((a, e) => a + (e - mean) ** 2, 0) / errs.length) : 0;
-  const band = 1.28 * sd; // หน่วย % เช่น 12 = ±12% รอบค่าพยากรณ์ (ช่วงประมาณ 80%)
+  // เป็นสัดส่วน เช่น 0.12 = ±12% · ForecastTab ใช้ตรง ๆ: forecast × (1 ± band) (ช่วงประมาณ 80%)
+  const band = 1.28 * sd;
 
   return {
     test,

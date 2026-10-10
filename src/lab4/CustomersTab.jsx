@@ -61,6 +61,111 @@ function RfmCard({ rfm, onPick, picked }) {
   );
 }
 
+// ---------------- Lab 4.1B · รายชื่อลูกค้าในกลุ่มที่เลือก ----------------
+// อ่านค่าจากแถวลูกค้าของ rfm.customers แบบยืดหยุ่น เผื่อชื่อฟิลด์ใน rfm.js ต่างกันเล็กน้อย
+const num = (...xs) => { for (const x of xs) if (x !== undefined && x !== null && x !== "") return Number(x); return 0; };
+const custRow = (c) => ({
+  id: c.customer_id ?? c.customerId ?? c.member_id ?? c.id,
+  recency: num(c.recency, c.recencyDays, c.days_since_last),
+  frequency: num(c.frequency, c.orders, c.bills),
+  monetary: num(c.monetary, c.revenue, c.total),
+  R: num(c.R, c.r, c.rScore, c.r_score),
+  F: num(c.F, c.f, c.fScore, c.f_score),
+  M: num(c.M, c.m, c.mScore, c.m_score),
+});
+
+const csvCell = (v) => {
+  const s = String(v ?? "");
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function downloadSegmentCsv(segment, rows) {
+  const head = ["รหัสลูกค้า", "กลุ่ม", "ไม่ได้มา (วัน)", "จำนวนบิล", "ยอดซื้อรวม (บาท)", "R", "F", "M", "RFM"];
+  const lines = rows.map((r) => [
+    r.id, SEG_TH[segment]?.th ?? segment, r.recency, r.frequency, r.monetary.toFixed(2), r.R, r.F, r.M, `${r.R}-${r.F}-${r.M}`,
+  ].map(csvCell).join(","));
+  // BOM (﻿) ให้ Excel รู้ว่าเป็น UTF-8 จึงอ่านภาษาไทยได้ · ใช้ \r\n ตามที่ Excel คาดหวัง
+  const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rfm_${segment.replace(/\s+/g, "_")}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function SegmentCustomersCard({ rfm, segment, onClose }) {
+  const seg = SEG_TH[segment];
+  const all = rfm.customers;
+  const title = `ลูกค้ากลุ่ม ${seg?.th ?? segment}`;
+  const closeBtn = (
+    <button type="button" onClick={onClose} aria-label="ปิด"
+            className="rounded-md px-2 py-1 text-stone-500 hover:bg-stone-100 hover:text-stone-800">✕ ปิด</button>
+  );
+
+  if (!Array.isArray(all)) {
+    return (
+      <Card title={title}>
+        <div className="flex items-start justify-between gap-4 text-sm text-stone-600">
+          <p>ยังไม่มีข้อมูลรายลูกค้า: ให้ฟังก์ชันใน <code>lib/analytics/rfm.js</code> คืน <code>customers</code> (แถวละคน มี segment, recency, frequency, monetary, R, F, M) มาพร้อม <code>segments</code></p>
+          {closeBtn}
+        </div>
+      </Card>
+    );
+  }
+
+  const rows = all.filter((c) => c.segment === segment).map(custRow).sort((a, b) => b.monetary - a.monetary);
+  const top = rows.slice(0, 15);
+  const total = rows.reduce((s, r) => s + r.monetary, 0);
+
+  return (
+    <Card title={title} sub={`${rows.length.toLocaleString()} คน · ยอดซื้อรวม ${fmtBaht(total)} · แสดง ${top.length} คนที่ซื้อมากที่สุด`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-stone-600">{seg?.action}</p>
+        <div className="flex items-center gap-2">
+          <button type="button" disabled={!rows.length} onClick={() => downloadSegmentCsv(segment, rows)}
+                  className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-40">
+            ดาวน์โหลด CSV ({rows.length.toLocaleString()} คน)
+          </button>
+          {closeBtn}
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-stone-500">ไม่มีลูกค้าในกลุ่มนี้</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead className="text-left text-stone-500">
+              <tr>
+                <th className="py-1 font-medium">#</th>
+                <th className="font-medium">รหัสลูกค้า</th>
+                <th className="text-right font-medium">ไม่ได้มา</th>
+                <th className="text-right font-medium">บิล</th>
+                <th className="text-right font-medium">ยอดซื้อ</th>
+                <th className="pl-4 text-center font-medium">R-F-M</th>
+              </tr>
+            </thead>
+            <tbody>
+              {top.map((r, i) => (
+                <tr key={r.id ?? i} className="border-t border-stone-100">
+                  <td className="py-1.5 text-stone-400 tabular-nums">{i + 1}</td>
+                  <td className="font-mono text-xs">{r.id}</td>
+                  <td className="text-right tabular-nums">{r.recency.toLocaleString()} วัน</td>
+                  <td className="text-right tabular-nums">{r.frequency.toLocaleString()}</td>
+                  <td className="text-right tabular-nums">{fmtBaht(r.monetary)}</td>
+                  <td className="pl-4 text-center tabular-nums">{r.R}-{r.F}-{r.M}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ---------------- Cohort ----------------
 function CohortCard({ cohort }) {
   if (cohort.error) return <Card title="Cohort · การกลับมาซื้อซ้ำ"><Pending lab="Lab 4.2" error={cohort.error} /></Card>;
@@ -160,6 +265,9 @@ export default function CustomersTab({ source }) {
         <div className="space-y-6">
           <RfmCard rfm={d.rfm} picked={picked} onPick={(s) => setPicked((p) => (p === s ? null : s))} />
           {/* Lab 4.1B: แสดงรายชื่อลูกค้าในกลุ่มที่คลิก (picked) + ปุ่มดาวน์โหลด CSV */}
+          {picked && !d.rfm.error && (
+            <SegmentCustomersCard rfm={d.rfm} segment={picked} onClose={() => setPicked(null)} />
+          )}
           <CohortCard cohort={d.cohort} />
           <AbcCard abc={d.abc} />
         </div>

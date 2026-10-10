@@ -51,7 +51,7 @@ export function ForecastCard({ series, horizon = 28, ahead = 14 }) {
     return <Card title="พยากรณ์ยอดขาย"><Pending lab="Lab 4.4" error={result.error ?? new Error("ไม่มีข้อมูลยอดขาย")} /></Card>;
   }
   const { bt, acc, future } = result;
-  const k = bt.band / 100;
+  const k = bt.band; // สัดส่วน เช่น 0.12
 
   // รายวัน: ช่วงย้อนทดสอบ (มียอดจริง) ต่อด้วยวันข้างหน้า (มีแต่ค่าพยากรณ์) · range = [ล่าง, บน] ของแถบ
   const daily = [
@@ -63,7 +63,7 @@ export function ForecastCard({ series, horizon = 28, ahead = 14 }) {
   return (
     <Card title="พยากรณ์ยอดขาย"
           sub={view === "daily"
-            ? `ย้อนทดสอบ ${bt.test.length} วันล่าสุด แล้วพยากรณ์ต่อ ${future.length} วัน · แถบสีอ่อน = ช่วงคาดการณ์ ±${bt.band.toFixed(1)}%`
+            ? `ย้อนทดสอบ ${bt.test.length} วันล่าสุด แล้วพยากรณ์ต่อ ${future.length} วัน · แถบสีอ่อน = ช่วงคาดการณ์ ±${(bt.band * 100).toFixed(1)}%`
             : "รวมยอดจริงและยอดคาดการณ์เป็นรายสัปดาห์ (จันทร์–อาทิตย์) ในช่วงย้อนทดสอบ"}>
       <div className="mb-3 flex justify-end"><Toggle value={view} onChange={setView} /></div>
 
@@ -151,7 +151,7 @@ export function PrepCard({ series, abc, products = [], horizon = 28 }) {
               <th className="text-right font-medium">ยอดคาดการณ์</th>
               <th className="text-right font-medium">ราคา</th>
               <th className="text-right font-medium">ควรเตรียม</th>
-              <th className="text-right font-medium">เผื่อ (+{band.toFixed(0)}%)</th>
+              <th className="text-right font-medium">เผื่อ (+{(band * 100).toFixed(0)}%)</th>
             </tr>
           </thead>
           <tbody>

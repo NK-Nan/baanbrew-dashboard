@@ -64,7 +64,7 @@ export function weeklyAccuracy(bt) {
 /** ข้อความอธิบายแถบช่วงคาดการณ์ (ใช้ใต้การ์ดพยากรณ์) */
 export function bandNote(bt) {
   const days = bt.test.length;
-  const pct = (bt.band ?? 0).toFixed(1);
+  const pct = ((bt.band ?? 0) * 100).toFixed(1); // band เป็นสัดส่วน → แสดงเป็น %
   return (
     `แถบช่วงคาดการณ์ = ค่าพยากรณ์ ±${pct}% · คำนวณจากการย้อนทดสอบ: ซ่อนยอดจริง ${days} วันล่าสุด ` +
     `ให้โมเดลทายจากข้อมูลก่อนหน้า แล้ววัด % ความคลาดเคลื่อนรายวัน (ยอดจริง − ค่าพยากรณ์) ÷ ยอดจริง ` +
@@ -76,18 +76,18 @@ export function bandNote(bt) {
 /**
  * ควรเตรียมของเท่าไรใน 7 วันข้างหน้า
  * ยอดเมนู ≈ ยอดคาดการณ์รวม 7 วัน × สัดส่วนยอดขายของเมนูนั้น (share จาก computeAbc)
- * จำนวนแก้ว ≈ ยอดเมนู ÷ ราคา (ปัดขึ้น) · "เผื่อ" ใช้ขอบบนของแถบช่วงคาดการณ์ (× (1 + band%))
+ * จำนวนแก้ว ≈ ยอดเมนู ÷ ราคา (ปัดขึ้น) · "เผื่อ" ใช้ขอบบนของแถบช่วงคาดการณ์ (× (1 + band))
  *
  * @param series    ยอดรายวัน [{ date, revenue }] (เช่นจาก toSeries)
  * @param abcItems  ผลของ computeAbc (มี product_id, name, share, cls)
  * @param products  [{ product_id, price, product_name? }] ใช้หาราคาต่อแก้ว
- * @param opts      { days = 7, band = 0 (หน่วย %), K = 8 }
+ * @param opts      { days = 7, band = 0 (สัดส่วนจาก backtest เช่น 0.12), K = 8 }
  */
 export function prepPlan(series, abcItems, products = [], { days = 7, band = 0, K = 8 } = {}) {
   const fc = seasonalForecast(series, days, K);
   const total = fc.reduce((a, x) => a + x.forecast, 0);
   const price = Object.fromEntries(products.map((p) => [p.product_id, Number(p.price)]));
-  const safeFactor = 1 + Math.max(0, band) / 100;
+  const safeFactor = 1 + Math.max(0, band);
 
   const rows = abcItems
     .filter((i) => i.cls === "A")
