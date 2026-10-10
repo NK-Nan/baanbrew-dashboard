@@ -61,6 +61,74 @@ function RfmCard({ rfm, onPick, picked }) {
   );
 }
 
+// ---------------- Lab 4.1B · รายชื่อลูกค้าในกลุ่มที่เลือก ----------------
+const TOP_N = 15;
+
+// ใส่เครื่องหมายคำพูดเมื่อค่ามี , " หรือขึ้นบรรทัดใหม่ ตามรูปแบบ CSV
+const csvCell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+
+function downloadCsv(filename, header, rows) {
+  const text = [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n");
+  // BOM (U+FEFF) นำหน้า ให้ Excel รู้ว่าเป็น UTF-8 และแสดงภาษาไทยถูก
+  const url = URL.createObjectURL(new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function SegmentCustomersCard({ rfm, segment, onClose }) {
+  const seg = SEG_TH[segment];
+  // เรียงตามยอดซื้อรวมมากไปน้อย
+  const list = rfm.customers.filter((c) => c.segment === segment).sort((a, b) => b.M - a.M);
+  const download = () => downloadCsv(
+    `rfm_${segment.replace(/\s+/g, "_")}_${rfm.asOf}.csv`,
+    ["รหัสลูกค้า", "ไม่ได้มา (วัน)", "จำนวนบิล", "ยอดซื้อรวม (บาท)", "R", "F", "M", "กลุ่ม"],
+    list.map((c) => [c.id, c.R, c.F, Math.round(c.M), c.r, c.f, c.m, `${seg.th} (${segment})`]),
+  );
+  return (
+    <Card title={`รายชื่อ${seg.th} (${segment})`}
+          sub={`${list.length.toLocaleString()} คน · เรียงตามยอดซื้อรวม แสดง ${Math.min(TOP_N, list.length)} คนแรก · ข้อมูลถึง ${rfm.asOf}`}
+          right={
+            <div className="flex gap-2">
+              <button onClick={download} disabled={!list.length}
+                      className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-40">
+                ดาวน์โหลด CSV
+              </button>
+              <button onClick={onClose} aria-label="ปิดรายชื่อ"
+                      className="rounded-lg px-3 py-1.5 text-sm text-stone-600 ring-1 ring-stone-300 hover:bg-stone-100">
+                ✕ ปิด
+              </button>
+            </div>
+          }>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm tabular-nums">
+          <thead className="text-left text-stone-500">
+            <tr>
+              <th className="py-1 font-medium">รหัส</th>
+              <th className="text-right font-medium">ไม่ได้มา (วัน)</th>
+              <th className="text-right font-medium">จำนวนบิล</th>
+              <th className="text-right font-medium">ยอดซื้อ</th>
+              <th className="text-center font-medium">R-F-M</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.slice(0, TOP_N).map((c) => (
+              <tr key={c.id} className="border-t border-stone-100">
+                <td className="py-1.5 font-mono">{c.id}</td>
+                <td className="text-right">{c.R.toLocaleString()}</td>
+                <td className="text-right">{c.F.toLocaleString()}</td>
+                <td className="text-right">{fmtBaht(c.M)}</td>
+                <td className="text-center">{c.r}-{c.f}-{c.m}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Insight>{seg.action}</Insight>
+    </Card>
+  );
+}
+
 // ---------------- Cohort ----------------
 function CohortCard({ cohort }) {
   if (cohort.error) return <Card title="Cohort · การกลับมาซื้อซ้ำ"><Pending lab="Lab 4.2" error={cohort.error} /></Card>;
@@ -159,7 +227,8 @@ export default function CustomersTab({ source }) {
       {(d) => (
         <div className="space-y-6">
           <RfmCard rfm={d.rfm} picked={picked} onPick={(s) => setPicked((p) => (p === s ? null : s))} />
-          {/* Lab 4.1B: แสดงรายชื่อลูกค้าในกลุ่มที่คลิก (picked) + ปุ่มดาวน์โหลด CSV */}
+          {/* Lab 4.1B: คลิกกลุ่มเดิมซ้ำ = ปิด (toggle อยู่ใน onPick ด้านบน) */}
+          {picked && !d.rfm.error && <SegmentCustomersCard rfm={d.rfm} segment={picked} onClose={() => setPicked(null)} />}
           <CohortCard cohort={d.cohort} />
           <AbcCard abc={d.abc} />
         </div>
