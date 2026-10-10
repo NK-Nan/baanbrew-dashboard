@@ -6,7 +6,19 @@ const dow = (ymd) => new Date(ymd + "T00:00:00Z").getUTCDay(); // 0 = อาท�
 
 /** ค่าเฉลี่ยยอดขายวันเดียวกันของสัปดาห์ K ครั้งล่าสุด (ฤดูกาลรายสัปดาห์) */
 export function seasonalForecast(series, horizon, K = 8) {
-  throw new Error("ยังไม่ได้ทำ: seasonalForecast");
+  // แยกยอดตามวันในสัปดาห์ (0–6) เรียงตามเวลา แล้วเก็บไว้แค่ K ค่าล่าสุดของแต่ละวัน
+  // กรองด้วย dow ของวันที่จริง ไม่ใช่นับถอยหลังทีละ 7 แถว จึงไม่เพี้ยนแม้ series มีวันขาด
+  const byDow = Array.from({ length: 7 }, () => []);
+  for (const s of series) byDow[dow(s.date)].push(s.revenue);
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const fallback = series.length ? avg(series.slice(-28).map((s) => s.revenue)) : 0;
+  const level = byDow.map((xs) => (xs.length ? avg(xs.slice(-K)) : fallback));
+
+  const last = series[series.length - 1].date;
+  return Array.from({ length: horizon }, (_, i) => {
+    const date = addDays(last, i + 1);
+    return { date, forecast: level[dow(date)] };
+  });
 }
 
 /** ค่าเฉลี่ย K วันล่าสุด เส้นตรง (ตัวเปรียบเทียบที่ไม่สนวันในสัปดาห์) */
@@ -19,7 +31,15 @@ export function flatForecast(series, horizon, K = 28) {
 
 /** Mean Absolute Percentage Error (%) · ข้ามวันที่ยอดจริงเป็น 0 เพราะหารไม่ได้ */
 export function mape(actual, forecast) {
-  throw new Error("ยังไม่ได้ทำ: mape");
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < actual.length; i++) {
+    const a = actual[i];
+    if (!a) continue; // ยอดจริง 0 (หรือไม่มีค่า) หารไม่ได้ → ข้าม
+    sum += Math.abs(a - forecast[i]) / Math.abs(a);
+    n += 1;
+  }
+  return n ? (sum / n) * 100 : null; // null = ไม่มีวันที่วัดได้เลย
 }
 
 /**
@@ -27,5 +47,30 @@ export function mape(actual, forecast) {
  * band = ±1.28 × ส่วนเบี่ยงเบนมาตรฐานของ % ความคลาดเคลื่อน (ช่วงประมาณ 80%)
  */
 export function backtest(series, horizon = 28, K = 8) {
-  throw new Error("ยังไม่ได้ทำ: backtest");
+  const train = series.slice(0, -horizon);
+  const actual = series.slice(-horizon);
+  if (!train.length) throw new Error(`backtest: ข้อมูลไม่พอ ต้องมีมากกว่า ${horizon} วัน`);
+
+  const seasonal = seasonalForecast(train, horizon, K);
+  const flat = flatForecast(train, horizon);
+
+  const test = actual.map((s, i) => ({
+    date: s.date,
+    actual: s.revenue,
+    seasonal: seasonal[i].forecast,
+    flat: flat[i].forecast,
+  }));
+
+  // % ความคลาดเคลื่อนของ seasonal รายวัน (มีเครื่องหมาย) · ข้ามวันที่ยอดจริงเป็น 0
+  const errs = test.filter((t) => t.actual).map((t) => ((t.actual - t.seasonal) / t.actual) * 100);
+  const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
+  const sd = errs.length ? Math.sqrt(errs.reduce((a, e) => a + (e - mean) ** 2, 0) / errs.length) : 0;
+  const band = 1.28 * sd; // หน่วย % เช่น 12 = ±12% รอบค่าพยากรณ์ (ช่วงประมาณ 80%)
+
+  return {
+    test,
+    mapeSeasonal: mape(test.map((t) => t.actual), test.map((t) => t.seasonal)),
+    mapeFlat: mape(test.map((t) => t.actual), test.map((t) => t.flat)),
+    band,
+  };
 }
