@@ -5,6 +5,8 @@ import Lab2Page from "./lab2/Lab2Page.jsx";
 import LiveTab from "./lab3/LiveTab.jsx";
 import RulesTester from "./lab3/RulesTester.jsx";
 import SetupGuide from "./lab3/SetupGuide.jsx";
+import CustomersTab from "./lab4/CustomersTab.jsx";
+import ForecastTab from "./lab4/ForecastTab.jsx";
 import { isConfigured } from "./lab3/firebase.js";
 import { firestoreSource, createDemoSource } from "./lab3/dataSource.js";
 import { prepareRows } from "./lib/metrics.js";
@@ -23,25 +25,31 @@ const TABS = [
   { id: "overview", label: "ภาพรวม (CSV)" },
   { id: "lab2", label: "Lab 2.2 · ซ่อมกราฟ" },
   { id: "live", label: "สด · Firestore" },
+  { id: "customers", label: "ลูกค้า & เมนู" },
+  { id: "forecast", label: "พยากรณ์ & ผิดปกติ" },
   { id: "rules", label: "ทดสอบ Rules" },
 ];
 
 export default function App() {
   const [rows, setRows] = useState(null);
   const [products, setProducts] = useState(null);
+  const [holidays, setHolidays] = useState({});
   const [error, setError] = useState(null);
   const [tab, setTab] = useState(() => TABS.find((t) => "#" + t.id === location.hash)?.id ?? "overview");
 
   useEffect(() => {
-    Promise.all([loadCsv("/sales.csv"), loadCsv("/products.csv")])
-      .then(([sales, prods]) => { setRows(prepareRows(sales)); setProducts(prods); })
+    Promise.all([loadCsv("/sales.csv"), loadCsv("/products.csv"), loadCsv("/thai_holidays.csv").catch(() => [])])
+      .then(([sales, prods, hol]) => {
+        setRows(prepareRows(sales)); setProducts(prods);
+        setHolidays(Object.fromEntries(hol.map((h) => [h.date, h.holiday])));
+      })
       .catch((e) => setError(e.message ?? String(e)));
   }, []);
 
   const source = useMemo(() => {
-    if (DEMO) return rows && products ? createDemoSource(rows, products) : null;
+    if (DEMO) return rows && products ? createDemoSource(rows, products, holidays) : null;
     return isConfigured ? firestoreSource : null;
-  }, [rows, products]);
+  }, [rows, products, holidays]);
 
   const choose = (id) => { setTab(id); history.replaceState(null, "", location.search + "#" + id); };
   const needsCsv = tab === "overview" || tab === "lab2" || DEMO;
@@ -64,6 +72,8 @@ export default function App() {
         {rows && tab === "overview" && <Overview rows={rows} />}
         {rows && tab === "lab2" && <Lab2Page rows={rows} products={products} />}
         {tab === "live" && (source ? <LiveTab source={source} /> : !DEMO && <SetupGuide />)}
+        {tab === "customers" && (source ? <CustomersTab source={source} /> : !DEMO && <SetupGuide />)}
+        {tab === "forecast" && (source ? <ForecastTab source={source} /> : !DEMO && <SetupGuide />)}
         {tab === "rules" && (DEMO ? <p className="text-stone-600">การทดสอบ Rules ใช้ได้กับ Firebase จริงเท่านั้น ไม่ใช่โหมดสาธิต</p>
           : isConfigured ? <RulesTester /> : <SetupGuide />)}
       </div>
