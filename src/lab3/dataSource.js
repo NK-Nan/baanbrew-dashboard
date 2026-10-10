@@ -2,12 +2,16 @@
 //   firestoreSource  ใช้ Firestore จริง (onSnapshot = real-time)
 //   demoSource       จำลองในหน่วยความจำ สำหรับคนที่ยังสร้าง Firebase ไม่ได้ (เปิดด้วย ?demo)
 import {
-  collection, query, where, orderBy, onSnapshot, getDocs, doc, setDoc, serverTimestamp,
+  collection, query, where, orderBy, onSnapshot, getDocs, getDoc, doc, setDoc, serverTimestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { db, auth, googleProvider } from "./firebase.js";
 import { selectLastDays, computeShift, toSaleDoc } from "../../scripts/seedTransform.mjs";
 import { todayBangkok } from "./time.js";
+import { buildDemoAnalytics } from "../lab4/demoAnalytics.js";
+
+// เอกสารสรุปที่ scripts/build-analytics.mjs เขียนไว้ใน collection "analytics"
+const ANALYTICS_DOCS = ["meta", "daily", "rfm", "cohort", "abc"];
 
 export const firestoreSource = {
   mode: "firebase",
@@ -36,10 +40,24 @@ export const firestoreSource = {
   },
 
   addSale: ({ id, data }) => setDoc(doc(db, "sales", id), { ...data, created_at: serverTimestamp() }),
+
+  /** อ่านผลวิเคราะห์ 5 เอกสาร (ใช้โควตาอ่าน 5 ครั้ง แทนการอ่านยอดขายดิบหลายหมื่นเอกสาร) */
+  async loadAnalytics() {
+    const snaps = await Promise.all(ANALYTICS_DOCS.map((id) => getDoc(doc(db, "analytics", id))));
+    const out = { reads: snaps.length };
+    for (const snap of snaps) {
+      // ยังไม่มีเอกสาร = ยังไม่เคยรัน pipeline · หน้าจอจะแสดงกล่อง "รอ…" แทนการพัง
+      out[snap.id] = snap.exists() ? snap.data() : { error: `ยังไม่มี analytics/${snap.id} รัน npm run analytics ก่อน` };
+    }
+    // builtAt เป็น Firestore Timestamp แปลงเป็นมิลลิวินาทีให้ new Date() ในหน้าจอใช้ได้
+    if (out.meta.error) out.meta = null; // ไม่มี meta = ซ่อนบรรทัด "ข้อมูลถึง…" ในหัวหน้า
+    else if (out.meta.builtAt?.toMillis) out.meta = { ...out.meta, builtAt: out.meta.builtAt.toMillis() };
+    return out;
+  },
 };
 
 // ---------------- โหมดสาธิต ----------------
-export function createDemoSource(csvRows, productRows) {
+export function createDemoSource(csvRows, productRows, holidays = {}) {
   const { rows, end } = selectLastDays(csvRows, 90);
   const shift = computeShift(end, todayBangkok());
   const docs = new Map(rows.map((r) => toSaleDoc(r, shift)).map((d) => [d.id, d.data]));
@@ -61,6 +79,8 @@ export function createDemoSource(csvRows, productRows) {
     onAuth: (cb) => { authCb = cb; cb(signedIn ? user : null); return () => { authCb = null; }; },
     signIn: async () => { signedIn = true; authCb?.(user); },
     signOut: async () => { signedIn = false; authCb?.(null); },
+    // คำนวณผลวิเคราะห์ในเบราว์เซอร์จาก CSV ด้วยฟังก์ชันชุดเดียวกับ pipeline (ไม่ใช้โควตา)
+    loadAnalytics: async () => buildDemoAnalytics(csvRows, productRows, holidays),
     loadProducts: async () => productRows.map((p) => ({ ...p, price: Number(p.price), cost: Number(p.cost) })),
     subscribeSales({ start, end }, onData) {
       const l = { start, end, onData };
